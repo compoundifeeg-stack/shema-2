@@ -1,19 +1,21 @@
-import { useState, useEffect, useMemo, useCallback, memo } from 'react';
+import { useState, useEffect, useMemo, useCallback, memo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ReactFlow, ReactFlowProvider, Background, Controls, MiniMap,
-  useNodesState, useEdgesState, type Node, type Edge,
+  useNodesState, useEdgesState, type Node, type Edge, type NodeChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Loader2, Search, Workflow, Table, Network, Boxes, Sparkles, FileText } from 'lucide-react';
-import { supabase, type Department, type Employee, type FreeNode, type FreeEdge } from '@/core/supabase';
+import { Loader as Loader2, Search, Workflow, Table, Network, Boxes, Sparkles, FileText, RotateCcw } from 'lucide-react';
+import { supabase, type Department, type Employee, type FreeNode, type FreeEdge, type NodePosition, type PositionView } from '@/core/supabase';
 import { extractDbError } from '@/core/dbErrors';
 import { toastError, toastSuccess, toastInfo } from '@/core/toast';
-import { layoutOrgChart, layoutMatrix } from '@/schema/layout';
+import { layoutOrgChart, layoutMatrix, buildPositionMap, type PositionMap } from '@/schema/layout';
 import { DeptNodeFactory } from '@/schema/DeptNode';
 import { EmpNodeFactory } from '@/schema/EmpNode';
 import { SidePanel } from '@/schema/SidePanel';
 import { TEMPLATES } from '@/schema/templates';
+import { useCanEdit } from '@/core/useCanEdit';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import type { SchemaTab } from '@/schema/types';
 
 interface SchemaData {
@@ -21,6 +23,7 @@ interface SchemaData {
   emps: Employee[];
   freeNodes: FreeNode[];
   freeEdges: FreeEdge[];
+  positions: NodePosition[];
 }
 
 export function SchemaScreen() {
@@ -33,6 +36,7 @@ export function SchemaScreen() {
 
 function SchemaScreenInner() {
   const { t } = useTranslation();
+  const canEdit = useCanEdit();
   const [tab, setTab] = useState<SchemaTab>('org');
   const [data, setData] = useState<SchemaData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -42,6 +46,8 @@ function SchemaScreenInner() {
   const [selectedDeptId, setSelectedDeptId] = useState<string | null>(null);
   const [selectedEmpId, setSelectedEmpId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const positionsRef = useRef<PositionMap>(new Map());
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -49,11 +55,12 @@ function SchemaScreenInner() {
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const [dRes, eRes, fnRes, feRes] = await Promise.all([
+    const [dRes, eRes, fnRes, feRes, posRes] = await Promise.all([
       supabase.from('departments').select('*').order('name'),
       supabase.from('employees').select('*').order('full_name'),
       supabase.from('free_nodes').select('*'),
       supabase.from('free_edges').select('*'),
+      supabase.from('node_positions').select('*'),
     ]);
     if (dRes.error) { setError(t(extractDbError(dRes.error))); setLoading(false); return; }
     if (eRes.error) { setError(t(extractDbError(eRes.error))); setLoading(false); return; }
@@ -62,13 +69,15 @@ function SchemaScreenInner() {
       emps: (eRes.data as Employee[]) ?? [],
       freeNodes: (fnRes.data as FreeNode[]) ?? [],
       freeEdges: (feRes.data as FreeEdge[]) ?? [],
+      positions: (posRes.data as NodePosition[]) ?? [],
     });
     setLoading(false);
   }, [t]);
 
   useEffect(() => { void loadData(); }, [loadData]);
 
-  // Build highlight set from search
+  const currentView: PositionView | null = tab === 'org' ? 'org' : tab === 'matrix' ? 'matrix' : null;
+
   const highlightIds = useMemo(() => {
     if (!data || !search.trim()) return null;
     const q = search.toLowerCase();
@@ -104,7 +113,6 @@ function SchemaScreenInner() {
     });
   }, []);
 
-  // Build node types with current data
   const nodeTypes = useMemo(() => {
     if (!data) return undefined;
     return {
@@ -114,18 +122,22 @@ function SchemaScreenInner() {
     };
   }, [data, handleSelectDept, handleSelectEmp, toggleCollapse, collapsed, highlightIds]);
 
-  // Update layout when tab/data/collapsed changes
   useEffect(() => {
     if (!data) return;
     if (tab === 'org') {
-      const { nodes: ns, edges: es } = layoutOrgChart(data.depts, data.emps, collapsed);
+      const posMap = buildPositionMap(data.positions, 'org');
+      positionsRef.current = posMap;
+      const { nodes: ns, edges: es } = layoutOrgChart(data.depts, data.emps, collapsed, posMap);
       setNodes(ns);
       setEdges(es);
     } else if (tab === 'matrix') {
-      const { nodes: ns, edges: es } = layoutMatrix(data.emps);
+      const posMap = buildPositionMap(data.positions, 'matrix');
+      positionsRef.current = posMap;
+      const { nodes: ns, edges: es } = layoutMatrix(data.emps, posMap);
       setNodes(ns);
       setEdges(es);
     } else if (tab === 'free') {
+      positionsRef.current = new Map();
       const ns: Node[] = data.freeNodes.map((n) => {
         const pos = (n.pos as { x?: number; y?: number } | null) ?? { x: 0, y: 0 };
         return { id: n.id, type: 'freeNode', position: { x: pos.x ?? 0, y: pos.y ?? 0 }, data: { nodeId: n.id } };
@@ -139,11 +151,65 @@ function SchemaScreenInner() {
     }
   }, [data, tab, collapsed, setNodes, setEdges]);
 
+  const savePosition = useCallback(async (
+    view: PositionView,
+    entityType: 'department' | 'employee',
+    entityId: string,
+    x: number,
+    y: number,
+  ) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const { error } = await supabase
+      .from('node_positions')
+      .upsert({ view, entity_type: entityType, entity_id: entityId, x, y });
+    if (error) {
+      toastError(t(extractDbError(error)));
+      void loadData();
+    }
+  }, [t, loadData]);
+
+  const handleNodesChange = useCallback((changes: NodeChange<Node>[]) => {
+    if (!canEdit || !currentView) {
+      onNodesChange(changes);
+      return;
+    }
+    for (const change of changes) {
+      if (change.type === 'position' && change.dragging === false && change.position) {
+        const node = nodes.find((n) => n.id === change.id);
+        if (!node) continue;
+        const isDept = node.type === 'deptNode';
+        const entityType = isDept ? 'department' : 'employee';
+        const entityId = isDept
+          ? (node.data as { deptId: string }).deptId
+          : (node.data as { empId: string }).empId;
+        if (!entityId) continue;
+        void savePosition(currentView, entityType, entityId, change.position.x, change.position.y);
+      }
+    }
+    onNodesChange(changes);
+  }, [canEdit, currentView, nodes, onNodesChange, savePosition]);
+
+  const handleResetLayout = useCallback(async () => {
+    if (!currentView) return;
+    const { error } = await supabase
+      .from('node_positions')
+      .delete()
+      .eq('view', currentView);
+    if (error) {
+      toastError(t(extractDbError(error)));
+      return;
+    }
+    setResetOpen(false);
+    toastSuccess(t('schema.layout_reset'));
+    void loadData();
+  }, [currentView, t, loadData]);
+
   const selectedDept = data?.depts.find((d) => d.id === selectedDeptId) ?? null;
   const selectedEmp = data?.emps.find((e) => e.id === selectedEmpId) ?? null;
 
   const hasOrgData = data ? data.depts.length > 0 || data.emps.length > 0 : false;
   const hasFreeData = data ? data.freeNodes.length > 0 : false;
+  const hasCustomLayout = data ? data.positions.some((p) => p.view === currentView) : false;
 
   const tabs: { id: SchemaTab; label: string; icon: typeof Network }[] = [
     { id: 'org', label: t('schema.tab_org'), icon: Network },
@@ -151,6 +217,9 @@ function SchemaScreenInner() {
     { id: 'list', label: t('schema.tab_list'), icon: Table },
     { id: 'free', label: t('schema.tab_free'), icon: Boxes },
   ];
+
+  const showCanvas = data && !loading && !error && tab !== 'list' &&
+    (tab === 'free' ? hasFreeData : hasOrgData);
 
   return (
     <div className="space-y-4">
@@ -222,46 +291,44 @@ function SchemaScreenInner() {
       )}
 
       {/* Canvas (org/matrix/free) */}
-      {data && !loading && !error && tab !== 'list' && (
-        (tab === 'free' ? hasFreeData : hasOrgData) && (
-          <div className="relative h-[70vh] min-h-[400px] overflow-hidden rounded-xl border border-ink-200 bg-ink-50 dark:border-ink-800 dark:bg-ink-950" dir="ltr">
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              nodeTypes={nodeTypes}
-              fitView
-              fitViewOptions={{ padding: 0.15 }}
-              minZoom={0.1}
-              maxZoom={2}
-              nodesDraggable={false}
-              nodesConnectable={false}
-              elementsSelectable
-              proOptions={{ hideAttribution: true }}
-              panOnDrag
-              selectionOnDrag={false}
-              panOnScroll={false}
-              zoomOnPinch
-              preventScrolling
-            >
-              <Background gap={16} size={1} />
-              <Controls showInteractive={false} />
-              <MiniMap
-                pannable
-                zoomable
-                className="!bg-white dark:!bg-ink-900"
-                nodeColor={(n) => {
-                  if (n.type === 'deptNode') {
-                    const dept = data.depts.find((d) => d.id === (n.data as { deptId: string }).deptId);
-                    return dept?.color ?? '#94a3b8';
-                  }
-                  return '#2563eb';
-                }}
-              />
-            </ReactFlow>
-          </div>
-        )
+      {showCanvas && (
+        <div className="relative h-[70vh] min-h-[400px] overflow-hidden rounded-xl border border-ink-200 bg-ink-50 dark:border-ink-800 dark:bg-ink-950" dir="ltr">
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={handleNodesChange}
+            onEdgesChange={onEdgesChange}
+            nodeTypes={nodeTypes}
+            fitView
+            fitViewOptions={{ padding: 0.15 }}
+            minZoom={0.1}
+            maxZoom={2}
+            nodesDraggable={canEdit && tab !== 'free'}
+            nodesConnectable={false}
+            elementsSelectable
+            proOptions={{ hideAttribution: true }}
+            panOnDrag
+            selectionOnDrag={false}
+            panOnScroll={false}
+            zoomOnPinch
+            preventScrolling
+          >
+            <Background gap={16} size={1} />
+            <Controls showInteractive={false} />
+            <MiniMap
+              pannable
+              zoomable
+              className="!bg-white dark:!bg-ink-900"
+              nodeColor={(n) => {
+                if (n.type === 'deptNode') {
+                  const dept = data?.depts.find((d) => d.id === (n.data as { deptId: string }).deptId);
+                  return dept?.color ?? '#94a3b8';
+                }
+                return '#2563eb';
+              }}
+            />
+          </ReactFlow>
+        </div>
       )}
 
       {/* List tab */}
@@ -269,17 +336,33 @@ function SchemaScreenInner() {
         <ListTab depts={data.depts} emps={data.emps} onSelectEmp={handleSelectEmp} />
       )}
 
-      {/* Auto-layout button for org chart */}
-      {data && !loading && !error && tab === 'org' && hasOrgData && (
-        <div className="flex justify-end">
-          <button
-            onClick={() => setCollapsed(new Set())}
-            className="btn-secondary"
-          >
-            <Sparkles className="h-4 w-4" />
-            {t('schema.auto_layout')}
-          </button>
+      {/* Action buttons for org/matrix views */}
+      {data && !loading && !error && (tab === 'org' || tab === 'matrix') && hasOrgData && (
+        <div className="flex items-center justify-between gap-2">
+          {tab === 'org' && (
+            <button
+              onClick={() => setCollapsed(new Set())}
+              className="btn-secondary"
+            >
+              <Sparkles className="h-4 w-4" />
+              {t('schema.auto_layout')}
+            </button>
+          )}
+          {tab === 'matrix' && <span />}
+          {canEdit && hasCustomLayout && (
+            <button
+              onClick={() => setResetOpen(true)}
+              className="btn-secondary"
+            >
+              <RotateCcw className="h-4 w-4" />
+              {t('schema.reset_layout')}
+            </button>
+          )}
         </div>
+      )}
+
+      {!canEdit && (tab === 'org' || tab === 'matrix') && hasOrgData && data && !loading && !error && (
+        <p className="text-center text-xs text-ink-400">{t('common.read_only')}</p>
       )}
 
       <SidePanel
@@ -291,6 +374,15 @@ function SchemaScreenInner() {
         employees={data?.emps ?? []}
         onSelectEmp={handleSelectEmp}
         onSelectDept={handleSelectDept}
+      />
+
+      <ConfirmDialog
+        open={resetOpen}
+        title={t('schema.reset_layout_title')}
+        message={t('schema.reset_layout_confirm')}
+        confirmLabel={t('schema.reset_layout')}
+        onConfirm={() => void handleResetLayout()}
+        onCancel={() => setResetOpen(false)}
       />
     </div>
   );

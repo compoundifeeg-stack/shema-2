@@ -44,3 +44,16 @@ export const employeeSchema = z.object({
 });
 
 export type EmployeeInput = z.infer<typeof employeeSchema>;
+
+export const positionViewSchema = z.enum(['org', 'matrix']);
+export const positionEntityTypeSchema = z.enum(['department', 'employee']);
+
+export const nodePositionSchema = z.object({
+  view: positionViewSchema,
+  entity_type: positionEntityTypeSchema,
+  entity_id: z.string().uuid(),
+  x: z.number().finite(),
+  y: z.number().finite(),
+});
+
+export type NodePositionInput = z.infer<typeof nodePositionSchema>;

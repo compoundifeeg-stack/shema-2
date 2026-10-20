@@ -100,3 +100,15 @@ export interface ModuleRow {
   enabled: boolean;
   updated_at: string;
 }
+
+export type PositionView = 'org' | 'matrix';
+export type PositionEntityType = 'department' | 'employee';
+
+export interface NodePosition {
+  view: PositionView;
+  entity_type: PositionEntityType;
+  entity_id: string;
+  x: number;
+  y: number;
+  updated_at: string;
+}

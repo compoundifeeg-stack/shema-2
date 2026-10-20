@@ -1,30 +1,41 @@
 import dagre from 'dagre';
 import type { Node, Edge } from '@xyflow/react';
-import type { Department, Employee } from '@/core/supabase';
+import type { Department, Employee, PositionView } from '@/core/supabase';
 
 const NODE_W = 200;
 const DEPT_H = 64;
 const EMP_H = 80;
 
-type PosField = 'pos_org' | 'pos_matrix' | 'pos_free';
+export type PositionMap = Map<string, { x: number; y: number }>;
 
-function getSavedPos(row: { pos_org: unknown; pos_matrix: unknown; pos_free: unknown }, field: PosField): { x: number; y: number } | null {
-  const raw = row[field] as { x?: number; y?: number } | null;
-  if (raw && typeof raw.x === 'number' && typeof raw.y === 'number') return { x: raw.x, y: raw.y };
-  return null;
+export function positionMapKey(view: PositionView, entityType: 'department' | 'employee', entityId: string): string {
+  return `${view}:${entityType}:${entityId}`;
+}
+
+export function buildPositionMap(
+  positions: { view: PositionView; entity_type: 'department' | 'employee'; entity_id: string; x: number; y: number }[],
+  view: PositionView,
+): PositionMap {
+  const map: PositionMap = new Map();
+  for (const p of positions) {
+    if (p.view === view) {
+      map.set(positionMapKey(view, p.entity_type, p.entity_id), { x: p.x, y: p.y });
+    }
+  }
+  return map;
 }
 
 export function layoutOrgChart(
   depts: Department[],
   employees: Employee[],
   collapsed: Set<string>,
+  savedPositions: PositionMap | null,
 ): { nodes: Node[]; edges: Edge[] } {
   const g = new dagre.graphlib.Graph();
   g.setGraph({ rankdir: 'TB', nodesep: 40, ranksep: 60, marginx: 20, marginy: 20 });
   g.setDefaultEdgeLabel(() => ({}));
 
   const visibleDepts = depts.filter((d) => {
-    // Hide if ancestor is collapsed
     let parent = d.parent_id;
     while (parent) {
       if (collapsed.has(parent)) return false;
@@ -44,7 +55,6 @@ export function layoutOrgChart(
     }
   }
 
-  // Employees shown under their department (if dept not collapsed)
   const visibleEmps = employees.filter(
     (e) => e.department_id && visibleDepts.some((d) => d.id === e.department_id && !collapsed.has(d.id)),
   );
@@ -58,20 +68,17 @@ export function layoutOrgChart(
   const nodes: Node[] = [];
   for (const d of visibleDepts) {
     const pos = g.node(`dept:${d.id}`);
-    const saved = getSavedPos(d, 'pos_org');
+    const saved = savedPositions?.get(positionMapKey('org', 'department', d.id));
     if (pos) nodes.push({ id: `dept:${d.id}`, type: 'deptNode', position: saved ?? { x: pos.x - NODE_W / 2, y: pos.y - DEPT_H / 2 }, data: { deptId: d.id } });
   }
   for (const e of visibleEmps) {
     const pos = g.node(`emp:${e.id}`);
-    const saved = getSavedPos(e, 'pos_org');
+    const saved = savedPositions?.get(positionMapKey('org', 'employee', e.id));
     if (pos) nodes.push({ id: `emp:${e.id}`, type: 'empNode', position: saved ?? { x: pos.x - NODE_W / 2, y: pos.y - EMP_H / 2 }, data: { empId: e.id } });
   }
 
   const edges: Edge[] = [];
   g.edges().forEach((edgeObj) => {
-    const sourceLabel = g.node(edgeObj.v).label as string;
-    const targetLabel = g.node(edgeObj.w).label as string;
-    void sourceLabel; void targetLabel;
     edges.push({
       id: `e:${edgeObj.v}-${edgeObj.w}`,
       source: edgeObj.v,
@@ -86,6 +93,7 @@ export function layoutOrgChart(
 
 export function layoutMatrix(
   employees: Employee[],
+  savedPositions: PositionMap | null,
 ): { nodes: Node[]; edges: Edge[] } {
   const g = new dagre.graphlib.Graph();
   g.setGraph({ rankdir: 'TB', nodesep: 50, ranksep: 70, marginx: 20, marginy: 20 });
@@ -104,7 +112,7 @@ export function layoutMatrix(
 
   const nodes: Node[] = employees.map((e) => {
     const pos = g.node(`emp:${e.id}`);
-    const saved = getSavedPos(e, 'pos_matrix');
+    const saved = savedPositions?.get(positionMapKey('matrix', 'employee', e.id));
     return {
       id: `emp:${e.id}`,
       type: 'empNode',

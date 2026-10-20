@@ -206,6 +206,10 @@ export const ru = {
     badge_span_exceeded: 'У руководителя более 8 подчинённых',
     badge_no_manager: 'Руководитель не назначен',
     badge_empty_zone: 'Зона ответственности не заполнена',
+    reset_layout: 'Сбросить расстановку',
+    reset_layout_title: 'Сбросить расстановку',
+    reset_layout_confirm: 'Сбросить позиции всех узлов этого вида к автоматической расстановке?',
+    layout_reset: 'Расстановка сброшена к автоматической.',
   },
   templates: {
     small_business: 'Малый бизнес',

@@ -206,6 +206,10 @@ export const en = {
     badge_span_exceeded: 'Manager has more than 8 subordinates',
     badge_no_manager: 'No manager assigned',
     badge_empty_zone: 'Responsibility zone is empty',
+    reset_layout: 'Reset layout',
+    reset_layout_title: 'Reset layout',
+    reset_layout_confirm: 'Reset all node positions for this view back to automatic layout?',
+    layout_reset: 'Layout reset to automatic.',
   },
   templates: {
     small_business: 'Small business',
