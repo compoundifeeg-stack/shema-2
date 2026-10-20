@@ -77,3 +77,5 @@ Touch targets &gt;= 44px. Drag/pan/pinch must work on touch. Autosave with debou
 ## Final report format (after each task)
 
 Done: ... | Files changed: ... | Not verified: ... | Risks/next steps: ...
+
+Standing rule
