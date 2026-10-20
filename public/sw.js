@@ -18,7 +18,9 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL_ASSETS)).catch(() => {})
   );
-  self.skipWaiting();
+  // Do NOT call self.skipWaiting() here — the new SW stays in the waiting
+  // state until the user accepts the "Update available" banner, which sends
+  // 'SKIP_WAITING' via postMessage. This matches the banner design.
 });
 
 self.addEventListener('activate', (event) => {
