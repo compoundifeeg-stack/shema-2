@@ -55,12 +55,14 @@ function SchemaScreenInner() {
   const [fitViewSignal, setFitViewSignal] = useState(0);
   const posMapRef = useRef<PositionMap>(new Map());
   const userInteractedRef = useRef(false);
+  const firstLoadRef = useRef(true);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
   const loadData = useCallback(async () => {
-    setLoading(true);
+    const isFirst = firstLoadRef.current;
+    if (isFirst) setLoading(true);
     setError(null);
     const [dRes, eRes, fnRes, feRes, posRes] = await Promise.all([
       supabase.from('departments').select('*').order('name'),
@@ -69,9 +71,9 @@ function SchemaScreenInner() {
       supabase.from('free_edges').select('*'),
       supabase.from('node_positions').select('*'),
     ]);
-    if (dRes.error) { setError(t(extractDbError(dRes.error))); setLoading(false); return; }
-    if (eRes.error) { setError(t(extractDbError(eRes.error))); setLoading(false); return; }
-    if (posRes.error) { setError(t(extractDbError(posRes.error))); setLoading(false); return; }
+    if (dRes.error) { setError(t(extractDbError(dRes.error))); if (isFirst) setLoading(false); return; }
+    if (eRes.error) { setError(t(extractDbError(eRes.error))); if (isFirst) setLoading(false); return; }
+    if (posRes.error) { setError(t(extractDbError(posRes.error))); if (isFirst) setLoading(false); return; }
     setStructure({
       depts: (dRes.data as Department[]) ?? [],
       emps: (eRes.data as Employee[]) ?? [],
@@ -79,8 +81,11 @@ function SchemaScreenInner() {
       freeEdges: (feRes.data as FreeEdge[]) ?? [],
     });
     setPositions((posRes.data as NodePosition[]) ?? []);
-    setLoading(false);
-    setFitViewSignal((n) => n + 1);
+    if (isFirst) {
+      setLoading(false);
+      firstLoadRef.current = false;
+      setFitViewSignal((n) => n + 1);
+    }
   }, [t]);
 
   useEffect(() => { void loadData(); }, [loadData]);
@@ -167,13 +172,18 @@ function SchemaScreenInner() {
       setNodes(ns);
       setEdges(es);
     }
-    userInteractedRef.current = false;
   }, [structure, tab, collapsed, setNodes, setEdges]);
 
-  // Fit view only on first load, tab switch, or explicit fit action — never
-  // after a drag save (fitViewSignal unchanged) or after the user pans/zooms
-  // (userInteractedRef is true).  The ReactFlow Controls panel provides the
-  // explicit "fit" button.
+  // Reset the interaction flag only on tab switch so fitView can run for the
+  // new view.  Data refreshes do NOT reset it — if the user panned/zoomed,
+  // the viewport stays put.
+  useEffect(() => {
+    userInteractedRef.current = false;
+  }, [tab]);
+
+  // Fit view only when fitViewSignal changes (first load or tab switch) and
+  // the user has not panned/zoomed since the last tab switch.  The ReactFlow
+  // Controls panel provides the explicit "fit" button independently.
   useEffect(() => {
     if (fitViewSignal === 0) return;
     if (!structure || loading || error) return;
@@ -182,7 +192,8 @@ function SchemaScreenInner() {
     if (userInteractedRef.current) return;
     const timer = setTimeout(() => fitView({ padding: 0.2, maxZoom: 1.5 }), 50);
     return () => clearTimeout(timer);
-  }, [fitViewSignal, structure, loading, error, tab, fitView]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitViewSignal, fitView]);
 
   const lastToastRef = useRef(0);
 
