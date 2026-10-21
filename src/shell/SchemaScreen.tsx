@@ -264,6 +264,7 @@ function SchemaScreenInner() {
     }
     setResetOpen(false);
     toastSuccess(t('schema.layout_reset'));
+    firstLoadRef.current = true;
     void loadData();
   }, [currentView, t, loadData]);
 
