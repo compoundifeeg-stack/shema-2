@@ -168,6 +168,8 @@ function SchemaScreenInner() {
     return () => clearTimeout(timer);
   }, [data, tab, loading, error, fitView]);
 
+  const lastToastRef = useRef(0);
+
   const savePosition = useCallback(async (
     view: PositionView,
     entityType: 'department' | 'employee',
@@ -183,7 +185,26 @@ function SchemaScreenInner() {
       toastError(t(extractDbError(error)));
       void loadData();
     } else {
-      toastSuccess(t('schema.position_saved'));
+      const now = Date.now();
+      if (now - lastToastRef.current > 1500) {
+        lastToastRef.current = now;
+        toastSuccess(t('schema.position_saved'));
+      }
+      setData((prev) => {
+        if (!prev) return prev;
+        const existing = prev.positions.findIndex(
+          (p) => p.view === view && p.entity_type === entityType && p.entity_id === entityId,
+        );
+        if (existing >= 0) {
+          const positions = [...prev.positions];
+          positions[existing] = { ...positions[existing], x, y };
+          return { ...prev, positions };
+        }
+        return {
+          ...prev,
+          positions: [...prev.positions, { view, entity_type: entityType, entity_id: entityId, x, y, updated_at: new Date().toISOString() }],
+        };
+      });
     }
   }, [t, loadData]);
 

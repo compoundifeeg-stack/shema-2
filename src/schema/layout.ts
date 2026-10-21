@@ -25,6 +25,17 @@ export function buildPositionMap(
   return map;
 }
 
+export function mergePosition(
+  saved: { x: number; y: number } | undefined,
+  dagrePos: { x: number; y: number } | undefined,
+  nodeW: number,
+  nodeH: number,
+): { x: number; y: number } {
+  if (saved) return saved;
+  if (dagrePos) return { x: dagrePos.x - nodeW / 2, y: dagrePos.y - nodeH / 2 };
+  return { x: 0, y: 0 };
+}
+
 export function layoutOrgChart(
   depts: Department[],
   employees: Employee[],
@@ -69,12 +80,12 @@ export function layoutOrgChart(
   for (const d of visibleDepts) {
     const pos = g.node(`dept:${d.id}`);
     const saved = savedPositions?.get(positionMapKey('org', 'department', d.id));
-    if (pos) nodes.push({ id: `dept:${d.id}`, type: 'deptNode', position: saved ?? { x: pos.x - NODE_W / 2, y: pos.y - DEPT_H / 2 }, data: { deptId: d.id } });
+    if (pos) nodes.push({ id: `dept:${d.id}`, type: 'deptNode', position: mergePosition(saved, pos, NODE_W, DEPT_H), data: { deptId: d.id } });
   }
   for (const e of visibleEmps) {
     const pos = g.node(`emp:${e.id}`);
     const saved = savedPositions?.get(positionMapKey('org', 'employee', e.id));
-    if (pos) nodes.push({ id: `emp:${e.id}`, type: 'empNode', position: saved ?? { x: pos.x - NODE_W / 2, y: pos.y - EMP_H / 2 }, data: { empId: e.id } });
+    if (pos) nodes.push({ id: `emp:${e.id}`, type: 'empNode', position: mergePosition(saved, pos, NODE_W, EMP_H), data: { empId: e.id } });
   }
 
   const edges: Edge[] = [];
@@ -116,7 +127,7 @@ export function layoutMatrix(
     return {
       id: `emp:${e.id}`,
       type: 'empNode',
-      position: saved ?? (pos ? { x: pos.x - NODE_W / 2, y: pos.y - EMP_H / 2 } : { x: 0, y: 0 }),
+      position: mergePosition(saved, pos, NODE_W, EMP_H),
       data: { empId: e.id },
     };
   });
