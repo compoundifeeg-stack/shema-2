@@ -18,12 +18,11 @@ import { useCanEdit } from '@/core/useCanEdit';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import type { SchemaTab } from '@/schema/types';
 
-interface SchemaData {
+interface StructureData {
   depts: Department[];
   emps: Employee[];
   freeNodes: FreeNode[];
   freeEdges: FreeEdge[];
-  positions: NodePosition[];
 }
 
 export function SchemaScreen() {
@@ -39,7 +38,8 @@ function SchemaScreenInner() {
   const canEdit = useCanEdit();
   const { fitView } = useReactFlow();
   const [tab, setTab] = useState<SchemaTab>('org');
-  const [data, setData] = useState<SchemaData | null>(null);
+  const [structure, setStructure] = useState<StructureData | null>(null);
+  const [positions, setPositions] = useState<NodePosition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -52,7 +52,8 @@ function SchemaScreenInner() {
     if (typeof window !== 'undefined') return window.innerWidth >= 640;
     return false;
   });
-  const positionsRef = useRef<PositionMap>(new Map());
+  const [fitViewSignal, setFitViewSignal] = useState(0);
+  const posMapRef = useRef<PositionMap>(new Map());
   const userInteractedRef = useRef(false);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -71,34 +72,44 @@ function SchemaScreenInner() {
     if (dRes.error) { setError(t(extractDbError(dRes.error))); setLoading(false); return; }
     if (eRes.error) { setError(t(extractDbError(eRes.error))); setLoading(false); return; }
     if (posRes.error) { setError(t(extractDbError(posRes.error))); setLoading(false); return; }
-    setData({
+    setStructure({
       depts: (dRes.data as Department[]) ?? [],
       emps: (eRes.data as Employee[]) ?? [],
       freeNodes: (fnRes.data as FreeNode[]) ?? [],
       freeEdges: (feRes.data as FreeEdge[]) ?? [],
-      positions: (posRes.data as NodePosition[]) ?? [],
     });
+    setPositions((posRes.data as NodePosition[]) ?? []);
     setLoading(false);
+    setFitViewSignal((n) => n + 1);
   }, [t]);
 
   useEffect(() => { void loadData(); }, [loadData]);
 
   const currentView: PositionView | null = tab === 'org' ? 'org' : tab === 'matrix' ? 'matrix' : null;
 
+  // Position map is recomputed every render from `positions` but assigned to a
+  // ref so the layout effect can read it without depending on it.  This keeps
+  // position-only updates (drag saves) from retriggering the layout effect.
+  const currentPosMap = useMemo(
+    () => (currentView ? buildPositionMap(positions, currentView) : new Map()),
+    [positions, currentView],
+  );
+  posMapRef.current = currentPosMap;
+
   const highlightIds = useMemo(() => {
-    if (!data || !search.trim()) return null;
+    if (!structure || !search.trim()) return null;
     const q = search.toLowerCase();
     const ids = new Set<string>();
-    for (const d of data.depts) {
+    for (const d of structure.depts) {
       if (d.name.toLowerCase().includes(q)) ids.add(d.id);
     }
-    for (const e of data.emps) {
+    for (const e of structure.emps) {
       if (e.full_name.toLowerCase().includes(q) || e.position.toLowerCase().includes(q)) {
         ids.add(e.id);
       }
     }
     return ids;
-  }, [data, search]);
+  }, [structure, search]);
 
   const handleSelectDept = useCallback((id: string) => {
     setSelectedDeptId(id);
@@ -121,35 +132,35 @@ function SchemaScreenInner() {
   }, []);
 
   const nodeTypes = useMemo(() => {
-    if (!data) return undefined;
+    if (!structure) return undefined;
     return {
-      deptNode: DeptNodeFactory(data.depts, data.emps, handleSelectDept, toggleCollapse, collapsed, highlightIds),
-      empNode: EmpNodeFactory(data.emps, data.depts, handleSelectEmp, highlightIds),
-      freeNode: FreeNodeFactory(data.freeNodes),
+      deptNode: DeptNodeFactory(structure.depts, structure.emps, handleSelectDept, toggleCollapse, collapsed, highlightIds),
+      empNode: EmpNodeFactory(structure.emps, structure.depts, handleSelectEmp, highlightIds),
+      freeNode: FreeNodeFactory(structure.freeNodes),
     };
-  }, [data, handleSelectDept, handleSelectEmp, toggleCollapse, collapsed, highlightIds]);
+  }, [structure, handleSelectDept, handleSelectEmp, toggleCollapse, collapsed, highlightIds]);
 
+  // Layout effect — re-runs only when structure (depts/emps/freeNodes/freeEdges),
+  // tab, or collapsed changes.  Position-only updates do NOT retrigger this
+  // effect, so a drag save preserves the current node set, selection, and
+  // side-panel state.
   useEffect(() => {
-    if (!data) return;
+    if (!structure) return;
+    const posMap = posMapRef.current;
     if (tab === 'org') {
-      const posMap = buildPositionMap(data.positions, 'org');
-      positionsRef.current = posMap;
-      const { nodes: ns, edges: es } = layoutOrgChart(data.depts, data.emps, collapsed, posMap);
+      const { nodes: ns, edges: es } = layoutOrgChart(structure.depts, structure.emps, collapsed, posMap);
       setNodes(ns);
       setEdges(es);
     } else if (tab === 'matrix') {
-      const posMap = buildPositionMap(data.positions, 'matrix');
-      positionsRef.current = posMap;
-      const { nodes: ns, edges: es } = layoutMatrix(data.emps, posMap);
+      const { nodes: ns, edges: es } = layoutMatrix(structure.emps, posMap);
       setNodes(ns);
       setEdges(es);
     } else if (tab === 'free') {
-      positionsRef.current = new Map();
-      const ns: Node[] = data.freeNodes.map((n) => {
+      const ns: Node[] = structure.freeNodes.map((n) => {
         const pos = (n.pos as { x?: number; y?: number } | null) ?? { x: 0, y: 0 };
         return { id: n.id, type: 'freeNode', position: { x: pos.x ?? 0, y: pos.y ?? 0 }, data: { nodeId: n.id } };
       });
-      const es: Edge[] = data.freeEdges.map((e) => ({
+      const es: Edge[] = structure.freeEdges.map((e) => ({
         id: e.id, source: e.source, target: e.target,
         style: e.kind === 'dashed' ? { stroke: '#94a3b8', strokeDasharray: '5 5' } : { stroke: '#94a3b8' },
       }));
@@ -157,16 +168,21 @@ function SchemaScreenInner() {
       setEdges(es);
     }
     userInteractedRef.current = false;
-  }, [data, tab, collapsed, setNodes, setEdges]);
+  }, [structure, tab, collapsed, setNodes, setEdges]);
 
-  // Fit view after nodes are set, only on initial load / tab switch / data refresh
+  // Fit view only on first load, tab switch, or explicit fit action — never
+  // after a drag save (fitViewSignal unchanged) or after the user pans/zooms
+  // (userInteractedRef is true).  The ReactFlow Controls panel provides the
+  // explicit "fit" button.
   useEffect(() => {
-    if (!data || loading || error) return;
+    if (fitViewSignal === 0) return;
+    if (!structure || loading || error) return;
     if (tab === 'list') return;
-    if (tab === 'free' ? !data.freeNodes.length : !(data.depts.length || data.emps.length)) return;
+    if (tab === 'free' ? !structure.freeNodes.length : !(structure.depts.length || structure.emps.length)) return;
+    if (userInteractedRef.current) return;
     const timer = setTimeout(() => fitView({ padding: 0.2, maxZoom: 1.5 }), 50);
     return () => clearTimeout(timer);
-  }, [data, tab, loading, error, fitView]);
+  }, [fitViewSignal, structure, loading, error, tab, fitView]);
 
   const lastToastRef = useRef(0);
 
@@ -190,20 +206,18 @@ function SchemaScreenInner() {
         lastToastRef.current = now;
         toastSuccess(t('schema.position_saved'));
       }
-      setData((prev) => {
-        if (!prev) return prev;
-        const existing = prev.positions.findIndex(
+      // Update only the positions array — structure is unchanged, so the
+      // layout effect does not re-run and nodes are not rebuilt.
+      setPositions((prev) => {
+        const existing = prev.findIndex(
           (p) => p.view === view && p.entity_type === entityType && p.entity_id === entityId,
         );
         if (existing >= 0) {
-          const positions = [...prev.positions];
-          positions[existing] = { ...positions[existing], x, y };
-          return { ...prev, positions };
+          const next = [...prev];
+          next[existing] = { ...next[existing], x, y };
+          return next;
         }
-        return {
-          ...prev,
-          positions: [...prev.positions, { view, entity_type: entityType, entity_id: entityId, x, y, updated_at: new Date().toISOString() }],
-        };
+        return [...prev, { view, entity_type: entityType, entity_id: entityId, x, y, updated_at: new Date().toISOString() }];
       });
     }
   }, [t, loadData]);
@@ -242,12 +256,12 @@ function SchemaScreenInner() {
     void loadData();
   }, [currentView, t, loadData]);
 
-  const selectedDept = data?.depts.find((d) => d.id === selectedDeptId) ?? null;
-  const selectedEmp = data?.emps.find((e) => e.id === selectedEmpId) ?? null;
+  const selectedDept = structure?.depts.find((d) => d.id === selectedDeptId) ?? null;
+  const selectedEmp = structure?.emps.find((e) => e.id === selectedEmpId) ?? null;
 
-  const hasOrgData = data ? data.depts.length > 0 || data.emps.length > 0 : false;
-  const hasFreeData = data ? data.freeNodes.length > 0 : false;
-  const hasCustomLayout = data ? data.positions.some((p) => p.view === currentView) : false;
+  const hasOrgData = structure ? structure.depts.length > 0 || structure.emps.length > 0 : false;
+  const hasFreeData = structure ? structure.freeNodes.length > 0 : false;
+  const hasCustomLayout = positions.some((p) => p.view === currentView);
 
   const tabs: { id: SchemaTab; label: string; icon: typeof Network }[] = [
     { id: 'org', label: t('schema.tab_org'), icon: Network },
@@ -256,7 +270,7 @@ function SchemaScreenInner() {
     { id: 'free', label: t('schema.tab_free'), icon: Boxes },
   ];
 
-  const showCanvas = data && !loading && !error && tab !== 'list' &&
+  const showCanvas = structure && !loading && !error && tab !== 'list' &&
     (tab === 'free' ? hasFreeData : hasOrgData);
 
   return (
@@ -278,7 +292,7 @@ function SchemaScreenInner() {
           return (
             <button
               key={tb.id}
-              onClick={() => setTab(tb.id)}
+              onClick={() => { setTab(tb.id); setFitViewSignal((n) => n + 1); }}
               className={`inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors min-h-[44px] ${
                 tab === tb.id
                   ? 'bg-white text-brand-700 shadow-sm dark:bg-ink-900 dark:text-brand-200'
@@ -306,17 +320,17 @@ function SchemaScreenInner() {
       )}
 
       {/* Empty schema */}
-      {data && !loading && !error && !hasOrgData && tab !== 'free' && (
-        <EmptySchema data={data} onCreated={loadData} />
+      {structure && !loading && !error && !hasOrgData && tab !== 'free' && (
+        <EmptySchema structure={structure} onCreated={loadData} />
       )}
 
       {/* Empty free-form */}
-      {data && !loading && !error && tab === 'free' && !hasFreeData && !hasOrgData && (
+      {structure && !loading && !error && tab === 'free' && !hasFreeData && !hasOrgData && (
         <EmptyFreeForm />
       )}
 
       {/* Search bar (for org/matrix/free) */}
-      {data && !loading && !error && tab !== 'list' && (hasOrgData || hasFreeData) && (
+      {structure && !loading && !error && tab !== 'list' && (hasOrgData || hasFreeData) && (
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
           <input
@@ -365,7 +379,7 @@ function SchemaScreenInner() {
                 maskColor="rgba(0,0,0,0.05)"
                 nodeColor={(n) => {
                   if (n.type === 'deptNode') {
-                    const dept = data?.depts.find((d) => d.id === (n.data as { deptId: string }).deptId);
+                    const dept = structure?.depts.find((d) => d.id === (n.data as { deptId: string }).deptId);
                     return dept?.color ?? '#94a3b8';
                   }
                   return '#2563eb';
@@ -386,12 +400,12 @@ function SchemaScreenInner() {
       )}
 
       {/* List tab */}
-      {data && !loading && !error && tab === 'list' && (
-        <ListTab depts={data.depts} emps={data.emps} onSelectEmp={handleSelectEmp} />
+      {structure && !loading && !error && tab === 'list' && (
+        <ListTab depts={structure.depts} emps={structure.emps} onSelectEmp={handleSelectEmp} />
       )}
 
       {/* Action buttons for org/matrix views */}
-      {data && !loading && !error && (tab === 'org' || tab === 'matrix') && hasOrgData && (
+      {structure && !loading && !error && (tab === 'org' || tab === 'matrix') && hasOrgData && (
         <div className="flex items-center justify-between gap-2">
           {tab === 'org' && (
             <button
@@ -415,7 +429,7 @@ function SchemaScreenInner() {
         </div>
       )}
 
-      {!canEdit && (tab === 'org' || tab === 'matrix') && hasOrgData && data && !loading && !error && (
+      {!canEdit && (tab === 'org' || tab === 'matrix') && hasOrgData && structure && !loading && !error && (
         <p className="text-center text-xs text-ink-400">{t('common.read_only')}</p>
       )}
 
@@ -424,8 +438,8 @@ function SchemaScreenInner() {
         onClose={() => setPanelOpen(false)}
         selectedDept={selectedDept}
         selectedEmp={selectedEmp}
-        depts={data?.depts ?? []}
-        employees={data?.emps ?? []}
+        depts={structure?.depts ?? []}
+        employees={structure?.emps ?? []}
         onSelectEmp={handleSelectEmp}
         onSelectDept={handleSelectDept}
       />
@@ -520,9 +534,9 @@ function ListTab({
 }
 
 function EmptySchema({
-  data, onCreated,
+  structure, onCreated,
 }: {
-  data: SchemaData;
+  structure: StructureData;
   onCreated: () => void;
 }) {
   const { t, i18n } = useTranslation();
@@ -532,7 +546,7 @@ function EmptySchema({
     const tpl = TEMPLATES.find((x) => x.id === templateId);
     if (!tpl) return;
 
-    if (data.depts.length > 0 || data.emps.length > 0 || data.freeNodes.length > 0) {
+    if (structure.depts.length > 0 || structure.emps.length > 0 || structure.freeNodes.length > 0) {
       toastInfo(t('schema.template_exists'));
       return;
     }
