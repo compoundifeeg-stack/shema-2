@@ -45,15 +45,15 @@ export function ProtectedLayout({ view, onNavigate, children }: Props) {
   return (
     <div className="flex min-h-screen flex-col bg-ink-50 text-ink-900 dark:bg-ink-950 dark:text-ink-100">
       <header className="sticky top-0 z-30 border-b border-ink-200 bg-white/80 backdrop-blur dark:border-ink-800 dark:bg-ink-900/80">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4">
-          <div className="flex items-center gap-2 font-semibold">
+        <div className="mx-auto flex h-14 max-w-6xl items-center gap-2 px-3 sm:gap-4 sm:px-4">
+          <div className="flex shrink-0 items-center gap-2 font-semibold">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-white">
               <Boxes className="h-4 w-4" />
             </span>
             <span className="hidden sm:inline">{t('app.name')}</span>
           </div>
 
-          <nav className="flex items-center gap-1">
+          <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
             {navItems.map((item) => {
               const Icon = item.icon;
               const active = view === item.id;
@@ -61,20 +61,20 @@ export function ProtectedLayout({ view, onNavigate, children }: Props) {
                 <button
                   key={item.id}
                   onClick={() => onNavigate(item.id)}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors sm:px-3 ${
                     active
                       ? 'bg-brand-50 text-brand-700 dark:bg-brand-900/40 dark:text-brand-200'
                       : 'text-ink-500 hover:bg-ink-100 hover:text-ink-800 dark:text-ink-400 dark:hover:bg-ink-800 dark:hover:text-ink-100'
                   }`}
                 >
                   <Icon className="h-4 w-4" />
-                  <span className="hidden sm:inline">{item.label}</span>
+                  <span className="hidden md:inline">{item.label}</span>
                 </button>
               );
             })}
           </nav>
 
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <button
               onClick={toggle}
               className="btn-ghost h-9 w-9 p-0"

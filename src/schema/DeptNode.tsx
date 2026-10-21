@@ -49,7 +49,7 @@ export function DeptNodeFactory(
             {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
           </button>
         </div>
-        <span className="mt-0.5 text-xs text-ink-400">{empCount} {t('schema.people')}</span>
+        <span className="mt-0.5 text-xs text-ink-400">{t('schema.people', { count: empCount })}</span>
         <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
       </div>
     );

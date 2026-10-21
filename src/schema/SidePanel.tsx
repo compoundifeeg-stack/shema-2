@@ -31,6 +31,7 @@ export function SidePanel({
     <div
       className="fixed right-0 top-0 z-40 h-full w-full max-w-sm overflow-y-auto border-l border-ink-200 bg-white shadow-xl dark:border-ink-800 dark:bg-ink-900"
       dir="ltr"
+      style={{ maxWidth: '100vw' }}
     >
       <div className="sticky top-0 flex items-center justify-between border-b border-ink-200 bg-white/90 px-4 py-3 backdrop-blur dark:border-ink-800 dark:bg-ink-900/90">
         <span className="text-sm font-semibold">{t('schema.details')}</span>
@@ -84,18 +85,18 @@ function DeptDetails({
 
   return (
     <div className="space-y-4 p-4">
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 items-center gap-3">
         <div
-          className="flex h-12 w-12 items-center justify-center rounded-xl text-white"
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-white"
           style={{ backgroundColor: dept.color }}
         >
           <Building2 className="h-6 w-6" />
         </div>
-        <div>
-          <h2 className="text-lg font-semibold">{dept.name}</h2>
+        <div className="min-w-0">
+          <h2 className="truncate text-lg font-semibold">{dept.name}</h2>
           <p className="text-xs text-ink-400">
-            {deptEmps.length} {t('schema.people')}
-            {children.length > 0 && ` · ${children.length} ${t('schema.sub_depts')}`}
+            {t('schema.people', { count: deptEmps.length })}
+            {children.length > 0 && ` · ${t('schema.sub_depts', { count: children.length })}`}
           </p>
         </div>
       </div>
@@ -113,9 +114,9 @@ function DeptDetails({
             onClick={() => onSelectDept(parent.id)}
             className="flex items-center gap-2 text-sm text-brand-600 hover:underline"
           >
-            <Building2 className="h-3.5 w-3.5" />
-            {parent.name}
-            <ArrowRight className="h-3 w-3" />
+            <Building2 className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{parent.name}</span>
+            <ArrowRight className="h-3 w-3 shrink-0" />
           </button>
         </div>
       )}
@@ -187,17 +188,17 @@ function EmpDetails({
 
   return (
     <div className="space-y-4 p-4">
-      <div className="flex items-center gap-3">
-        <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${
+      <div className="flex min-w-0 items-center gap-3">
+        <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${
           emp.is_vacancy ? 'bg-warning-100 text-warning-600' : 'bg-brand-50 text-brand-600 dark:bg-brand-900/40 dark:text-brand-200'
         }`}>
           {emp.is_vacancy ? <Briefcase className="h-6 w-6" /> : <UserCircle className="h-6 w-6" />}
         </div>
-        <div>
-          <h2 className="text-lg font-semibold">
+        <div className="min-w-0">
+          <h2 className="truncate text-lg font-semibold">
             {emp.is_vacancy ? t('employees.vacancy_label') : emp.full_name}
           </h2>
-          <p className="text-xs text-ink-400">{emp.position}</p>
+          <p className="truncate text-xs text-ink-400">{emp.position}</p>
         </div>
       </div>
 
@@ -228,9 +229,9 @@ function EmpDetails({
             onClick={() => onSelectEmp(manager.id)}
             className="flex items-center gap-2 text-sm text-brand-600 hover:underline"
           >
-            <UserCircle className="h-3.5 w-3.5" />
-            {manager.is_vacancy ? t('employees.vacancy_label') : manager.full_name}
-            <ArrowRight className="h-3 w-3" />
+            <UserCircle className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{manager.is_vacancy ? t('employees.vacancy_label') : manager.full_name}</span>
+            <ArrowRight className="h-3 w-3 shrink-0" />
           </button>
         </div>
       )}
@@ -242,9 +243,9 @@ function EmpDetails({
             onClick={() => onSelectEmp(pm.id)}
             className="flex items-center gap-2 text-sm text-brand-600 hover:underline"
           >
-            <UserCircle className="h-3.5 w-3.5" />
-            {pm.is_vacancy ? t('employees.vacancy_label') : pm.full_name}
-            <ArrowRight className="h-3 w-3" />
+            <UserCircle className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{pm.is_vacancy ? t('employees.vacancy_label') : pm.full_name}</span>
+            <ArrowRight className="h-3 w-3 shrink-0" />
           </button>
         </div>
       )}

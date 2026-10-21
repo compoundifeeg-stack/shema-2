@@ -56,7 +56,7 @@ export function EmpNodeFactory(
           )}
         </div>
         {dept && <p className="mt-0.5 truncate text-xs text-ink-400">{dept.name}</p>}
-        {subCount > 0 && <p className="text-xs text-ink-400">{subCount} {t('schema.reports')}</p>}
+        {subCount > 0 && <p className="text-xs text-ink-400">{t('schema.reports', { count: subCount })}</p>}
         <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
         <Handle type="target" position={Position.Left} id="pm-handle" style={{ opacity: 0 }} />
       </div>

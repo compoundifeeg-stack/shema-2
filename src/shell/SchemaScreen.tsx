@@ -2,10 +2,10 @@ import { useState, useEffect, useMemo, useCallback, memo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ReactFlow, ReactFlowProvider, Background, Controls, MiniMap,
-  useNodesState, useEdgesState, type Node, type Edge, type NodeChange,
+  useNodesState, useEdgesState, useReactFlow, type Node, type Edge, type NodeChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Loader as Loader2, Search, Workflow, Table, Network, Boxes, Sparkles, FileText, RotateCcw } from 'lucide-react';
+import { Loader as Loader2, Search, Workflow, Table, Network, Boxes, Sparkles, FileText, RotateCcw, Map as MapIcon } from 'lucide-react';
 import { supabase, type Department, type Employee, type FreeNode, type FreeEdge, type NodePosition, type PositionView } from '@/core/supabase';
 import { extractDbError } from '@/core/dbErrors';
 import { toastError, toastSuccess, toastInfo } from '@/core/toast';
@@ -37,6 +37,7 @@ export function SchemaScreen() {
 function SchemaScreenInner() {
   const { t } = useTranslation();
   const canEdit = useCanEdit();
+  const { fitView } = useReactFlow();
   const [tab, setTab] = useState<SchemaTab>('org');
   const [data, setData] = useState<SchemaData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,7 +48,12 @@ function SchemaScreenInner() {
   const [selectedEmpId, setSelectedEmpId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
+  const [showMinimap, setShowMinimap] = useState(() => {
+    if (typeof window !== 'undefined') return window.innerWidth >= 640;
+    return false;
+  });
   const positionsRef = useRef<PositionMap>(new Map());
+  const userInteractedRef = useRef(false);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -149,7 +155,17 @@ function SchemaScreenInner() {
       setNodes(ns);
       setEdges(es);
     }
+    userInteractedRef.current = false;
   }, [data, tab, collapsed, setNodes, setEdges]);
+
+  // Fit view after nodes are set, only on initial load / tab switch / data refresh
+  useEffect(() => {
+    if (!data || loading || error) return;
+    if (tab === 'list') return;
+    if (tab === 'free' ? !data.freeNodes.length : !(data.depts.length || data.emps.length)) return;
+    const timer = setTimeout(() => fitView({ padding: 0.2, maxZoom: 1.5 }), 50);
+    return () => clearTimeout(timer);
+  }, [data, tab, loading, error, fitView]);
 
   const savePosition = useCallback(async (
     view: PositionView,
@@ -188,6 +204,10 @@ function SchemaScreenInner() {
     }
     onNodesChange(changes);
   }, [canEdit, currentView, nodes, onNodesChange, savePosition]);
+
+  const handleMove = useCallback(() => {
+    userInteractedRef.current = true;
+  }, []);
 
   const handleResetLayout = useCallback(async () => {
     if (!currentView) return;
@@ -229,7 +249,7 @@ function SchemaScreenInner() {
             <Workflow className="h-6 w-6 text-brand-600" />
             {t('schema.title')}
           </h1>
-          <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">{t('schema.subtitle')}</p>
+          <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">{canEdit ? t('schema.subtitle_editable') : t('schema.subtitle')}</p>
         </div>
       </div>
 
@@ -298,10 +318,10 @@ function SchemaScreenInner() {
             edges={edges}
             onNodesChange={handleNodesChange}
             onEdgesChange={onEdgesChange}
+            onMove={handleMove}
             nodeTypes={nodeTypes}
-            fitView
-            fitViewOptions={{ padding: 0.15 }}
-            minZoom={0.1}
+            fitView={false}
+            minZoom={0.05}
             maxZoom={2}
             nodesDraggable={canEdit && tab !== 'free'}
             nodesConnectable={false}
@@ -314,20 +334,35 @@ function SchemaScreenInner() {
             preventScrolling
           >
             <Background gap={16} size={1} />
-            <Controls showInteractive={false} />
-            <MiniMap
-              pannable
-              zoomable
-              className="!bg-white dark:!bg-ink-900"
-              nodeColor={(n) => {
-                if (n.type === 'deptNode') {
-                  const dept = data?.depts.find((d) => d.id === (n.data as { deptId: string }).deptId);
-                  return dept?.color ?? '#94a3b8';
-                }
-                return '#2563eb';
-              }}
+            <Controls
+              showInteractive={false}
+              className="!rounded-lg !border-ink-200 !bg-white !shadow-md dark:!border-ink-700 dark:!bg-ink-900"
             />
+            {showMinimap && (
+              <MiniMap
+                pannable
+                zoomable
+                className="!rounded-lg !border !border-ink-200 !bg-white !shadow-md dark:!border-ink-700 dark:!bg-ink-900"
+                maskColor="rgba(0,0,0,0.05)"
+                nodeColor={(n) => {
+                  if (n.type === 'deptNode') {
+                    const dept = data?.depts.find((d) => d.id === (n.data as { deptId: string }).deptId);
+                    return dept?.color ?? '#94a3b8';
+                  }
+                  return '#2563eb';
+                }}
+              />
+            )}
           </ReactFlow>
+          {/* Minimap toggle button — hidden on small screens where minimap is off by default */}
+          <button
+            onClick={() => setShowMinimap((v) => !v)}
+            className="absolute bottom-4 left-4 z-10 inline-flex h-11 w-11 items-center justify-center rounded-lg border border-ink-200 bg-white text-ink-600 shadow-md transition-colors hover:bg-ink-100 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-300 dark:hover:bg-ink-800 sm:hidden"
+            aria-label={showMinimap ? t('schema.hide_minimap') : t('schema.show_minimap')}
+            title={showMinimap ? t('schema.hide_minimap') : t('schema.show_minimap')}
+          >
+            <MapIcon className="h-4 w-4" />
+          </button>
         </div>
       )}
 
