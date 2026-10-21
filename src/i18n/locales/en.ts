@@ -216,6 +216,7 @@ export const en = {
     reset_layout_title: 'Reset layout',
     reset_layout_confirm: 'Reset all node positions for this view back to automatic layout?',
     layout_reset: 'Layout reset to automatic.',
+    position_saved: 'Position saved.',
     show_minimap: 'Show minimap',
     hide_minimap: 'Hide minimap',
   },

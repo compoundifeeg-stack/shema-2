@@ -70,6 +70,7 @@ function SchemaScreenInner() {
     ]);
     if (dRes.error) { setError(t(extractDbError(dRes.error))); setLoading(false); return; }
     if (eRes.error) { setError(t(extractDbError(eRes.error))); setLoading(false); return; }
+    if (posRes.error) { setError(t(extractDbError(posRes.error))); setLoading(false); return; }
     setData({
       depts: (dRes.data as Department[]) ?? [],
       emps: (eRes.data as Employee[]) ?? [],
@@ -181,29 +182,25 @@ function SchemaScreenInner() {
     if (error) {
       toastError(t(extractDbError(error)));
       void loadData();
+    } else {
+      toastSuccess(t('schema.position_saved'));
     }
   }, [t, loadData]);
 
   const handleNodesChange = useCallback((changes: NodeChange<Node>[]) => {
-    if (!canEdit || !currentView) {
-      onNodesChange(changes);
-      return;
-    }
-    for (const change of changes) {
-      if (change.type === 'position' && change.dragging === false && change.position) {
-        const node = nodes.find((n) => n.id === change.id);
-        if (!node) continue;
-        const isDept = node.type === 'deptNode';
-        const entityType = isDept ? 'department' : 'employee';
-        const entityId = isDept
-          ? (node.data as { deptId: string }).deptId
-          : (node.data as { empId: string }).empId;
-        if (!entityId) continue;
-        void savePosition(currentView, entityType, entityId, change.position.x, change.position.y);
-      }
-    }
     onNodesChange(changes);
-  }, [canEdit, currentView, nodes, onNodesChange, savePosition]);
+  }, [onNodesChange]);
+
+  const handleNodeDragStop = useCallback((_: MouseEvent | TouchEvent, node: Node) => {
+    if (!canEdit || !currentView) return;
+    const isDept = node.type === 'deptNode';
+    const entityType = isDept ? 'department' : 'employee';
+    const entityId = isDept
+      ? (node.data as { deptId: string }).deptId
+      : (node.data as { empId: string }).empId;
+    if (!entityId) return;
+    void savePosition(currentView, entityType, entityId, node.position.x, node.position.y);
+  }, [canEdit, currentView, savePosition]);
 
   const handleMove = useCallback(() => {
     userInteractedRef.current = true;
@@ -318,6 +315,7 @@ function SchemaScreenInner() {
             edges={edges}
             onNodesChange={handleNodesChange}
             onEdgesChange={onEdgesChange}
+            onNodeDragStop={handleNodeDragStop}
             onMove={handleMove}
             nodeTypes={nodeTypes}
             fitView={false}
