@@ -248,8 +248,8 @@ function SchemaScreenInner() {
     void savePosition(currentView, entityType, entityId, node.position.x, node.position.y);
   }, [canEdit, currentView, savePosition]);
 
-  const handleMove = useCallback(() => {
-    userInteractedRef.current = true;
+  const handleMove = useCallback((event: MouseEvent | TouchEvent | null) => {
+    if (event !== null) userInteractedRef.current = true;
   }, []);
 
   const handleResetLayout = useCallback(async () => {
@@ -264,8 +264,9 @@ function SchemaScreenInner() {
     }
     setResetOpen(false);
     toastSuccess(t('schema.layout_reset'));
-    firstLoadRef.current = true;
-    void loadData();
+    await loadData();
+    userInteractedRef.current = false;
+    setFitViewSignal((n) => n + 1);
   }, [currentView, t, loadData]);
 
   const selectedDept = structure?.depts.find((d) => d.id === selectedDeptId) ?? null;

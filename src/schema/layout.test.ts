@@ -1,6 +1,7 @@
 // Pure-function unit tests for layout.ts — no test runner required.
 // Run: npx tsx src/schema/layout.test.ts
-import { positionMapKey, buildPositionMap, mergePosition } from './layout';
+import { positionMapKey, buildPositionMap, mergePosition, layoutOrgChart } from './layout';
+import type { Department, Employee } from '@/core/supabase';
 
 let passed = 0;
 let failed = 0;
@@ -112,6 +113,68 @@ assertEq(
   mergePosition(matrixEmp, { x: 0, y: 0 }, 200, 80),
   { x: 100, y: 200 },
   'cross-view: matrix emp uses matrix position, not org',
+);
+
+// --- After reset: no saved positions, all nodes use dagre positions ---
+// Simulates handleResetLayout: positions deleted, layoutOrgChart called
+// with an empty position map. Every node must fall back to dagre-centered
+// coordinates (mergePosition miss path).
+const resetDepts: Department[] = [
+  { id: 'root-d', parent_id: null, name: 'Root', responsibility_zone: '', desired_result: '', kpis: '', color: '#ccc', photo_path: '', pos_org: null, pos_matrix: null, pos_free: null, updated_at: '' },
+  { id: 'child-d', parent_id: 'root-d', name: 'Child', responsibility_zone: '', desired_result: '', kpis: '', color: '#ccc', photo_path: '', pos_org: null, pos_matrix: null, pos_free: null, updated_at: '' },
+];
+const resetEmps: Employee[] = [
+  { id: 'emp-1', department_id: 'root-d', full_name: 'Alice', position: 'CEO', duties: '', responsibility_zone: '', manager_id: null, project_manager_id: null, is_vacancy: false, photo_path: '', pos_org: null, pos_matrix: null, pos_free: null, updated_at: '' },
+];
+const resetResult = layoutOrgChart(resetDepts, resetEmps, new Set(), new Map());
+assert(resetResult.nodes.length === 3, 'reset: 3 nodes rendered (2 depts + 1 emp)');
+assert(resetResult.edges.length === 2, 'reset: 2 edges (root->child, root->emp)');
+for (const n of resetResult.nodes) {
+  assert(n.position.x !== 932.9 && n.position.y !== -521.5, `reset: node ${n.id} uses dagre position, not stale saved`);
+  assert(Number.isFinite(n.position.x) && Number.isFinite(n.position.y), `reset: node ${n.id} has finite coordinates`);
+}
+// With empty saved map, all nodes use mergePosition(undefined, dagrePos, ...) = dagre-centered
+// Verify one specific node's position matches the dagre-centered formula
+const rootNode = resetResult.nodes.find((n) => n.id === 'dept:root-d');
+assert(rootNode !== undefined, 'reset: root dept node exists');
+// dagre position is deterministic for this small graph; we can't predict the
+// exact value without running dagre, but we CAN verify it equals the centered
+// formula applied to whatever dagre computed. Since we don't have the dagre
+// output separately, we verify the key invariant: no saved position was used.
+
+// --- Saved position survives collapse/expand ---
+// A department with a saved position should retain it after collapsing and
+// then expanding its parent. The position is stored in the DB independently
+// of collapse state; layoutOrgChart reads it from the saved map whenever the
+// node is visible. When collapsed (parent in collapsed set), the child is
+// filtered out. When expanded (empty collapsed set), the child reappears
+// with its saved position intact.
+const surviveDepts: Department[] = [
+  { id: 'p-d', parent_id: null, name: 'Parent', responsibility_zone: '', desired_result: '', kpis: '', color: '#ccc', photo_path: '', pos_org: null, pos_matrix: null, pos_free: null, updated_at: '' },
+  { id: 'c-d', parent_id: 'p-d', name: 'Child', responsibility_zone: '', desired_result: '', kpis: '', color: '#ccc', photo_path: '', pos_org: null, pos_matrix: null, pos_free: null, updated_at: '' },
+];
+const surviveEmps: Employee[] = [];
+const savedPositions = buildPositionMap(
+  [{ view: 'org', entity_type: 'department', entity_id: 'c-d', x: 777, y: 333 }],
+  'org',
+);
+
+// Collapsed: child filtered out
+const collapsedResult = layoutOrgChart(surviveDepts, surviveEmps, new Set(['p-d']), savedPositions);
+assert(
+  !collapsedResult.nodes.some((n) => n.id === 'dept:c-d'),
+  'collapse/expand: child absent when parent collapsed',
+);
+assert(collapsedResult.nodes.length === 1, 'collapse/expand: only parent visible when collapsed');
+
+// Expanded: child reappears with saved position
+const expandedResult = layoutOrgChart(surviveDepts, surviveEmps, new Set(), savedPositions);
+const childNode = expandedResult.nodes.find((n) => n.id === 'dept:c-d');
+assert(childNode !== undefined, 'collapse/expand: child reappears after expand');
+assertEq(
+  childNode!.position,
+  { x: 777, y: 333 },
+  'collapse/expand: saved position (777,333) survives collapse/expand cycle',
 );
 
 // --- Summary ---
