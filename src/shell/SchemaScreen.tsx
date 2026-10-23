@@ -93,6 +93,8 @@ function SchemaScreenInner() {
     }
   }, [t]);
 
+  useEffect(() => { void loadData(); }, [loadData]);
+
   useEffect(() => {
     const mq = window.matchMedia('(pointer: coarse)');
     const handler = (e: MediaQueryListEvent) => setCoarsePointer(e.matches);
