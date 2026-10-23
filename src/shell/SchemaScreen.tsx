@@ -5,7 +5,7 @@ import {
   useNodesState, useEdgesState, useReactFlow, type Node, type Edge, type NodeChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Loader as Loader2, Search, Workflow, Table, Network, Boxes, Sparkles, FileText, RotateCcw, Map as MapIcon } from 'lucide-react';
+import { Loader as Loader2, Search, Workflow, Table, Network, Boxes, Sparkles, FileText, RotateCcw, Map as MapIcon, Lock, Pencil } from 'lucide-react';
 import { supabase, type Department, type Employee, type FreeNode, type FreeEdge, type NodePosition, type PositionView } from '@/core/supabase';
 import { extractDbError } from '@/core/dbErrors';
 import { toastError, toastSuccess, toastInfo } from '@/core/toast';
@@ -56,6 +56,11 @@ function SchemaScreenInner() {
   const posMapRef = useRef<PositionMap>(new Map());
   const userInteractedRef = useRef(false);
   const firstLoadRef = useRef(true);
+  const [coarsePointer, setCoarsePointer] = useState(() => {
+    if (typeof window !== 'undefined') return window.matchMedia('(pointer: coarse)').matches;
+    return false;
+  });
+  const [touchEdit, setTouchEdit] = useState(false);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -88,7 +93,12 @@ function SchemaScreenInner() {
     }
   }, [t]);
 
-  useEffect(() => { void loadData(); }, [loadData]);
+  useEffect(() => {
+    const mq = window.matchMedia('(pointer: coarse)');
+    const handler = (e: MediaQueryListEvent) => setCoarsePointer(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
 
   const currentView: PositionView | null = tab === 'org' ? 'org' : tab === 'matrix' ? 'matrix' : null;
 
@@ -179,6 +189,7 @@ function SchemaScreenInner() {
   // the viewport stays put.
   useEffect(() => {
     userInteractedRef.current = false;
+    setTouchEdit(false);
   }, [tab]);
 
   // Fit view only when fitViewSignal changes (first load or tab switch) and
@@ -369,7 +380,7 @@ function SchemaScreenInner() {
             fitView={false}
             minZoom={0.05}
             maxZoom={2}
-            nodesDraggable={canEdit && tab !== 'free'}
+            nodesDraggable={canEdit && tab !== 'free' && (!coarsePointer || touchEdit)}
             nodesConnectable={false}
             elementsSelectable
             proOptions={{ hideAttribution: true }}
@@ -400,6 +411,27 @@ function SchemaScreenInner() {
               />
             )}
           </ReactFlow>
+          {/* Touch edit toggle — coarse pointer + editor/owner + org/matrix only */}
+          {coarsePointer && canEdit && (tab === 'org' || tab === 'matrix') && (
+            <button
+              onClick={() => setTouchEdit((v) => !v)}
+              className={`absolute top-3 left-3 z-10 inline-flex min-h-[44px] items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium shadow-md transition-colors ${
+                touchEdit
+                  ? 'border-brand-500 bg-brand-50 text-brand-700 dark:border-brand-400 dark:bg-brand-900/30 dark:text-brand-200'
+                  : 'border-ink-200 bg-white text-ink-600 hover:bg-ink-100 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-300 dark:hover:bg-ink-800'
+              }`}
+              aria-label={touchEdit ? t('schema.touch_edit_done') : t('schema.touch_edit_start')}
+              aria-pressed={touchEdit}
+            >
+              {touchEdit ? <Pencil className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+              <span>{touchEdit ? t('schema.touch_edit_on') : t('schema.touch_edit_off')}</span>
+            </button>
+          )}
+          {touchEdit && coarsePointer && canEdit && (tab === 'org' || tab === 'matrix') && (
+            <p className="pointer-events-none absolute top-16 left-3 z-10 rounded-md bg-ink-900/80 px-2 py-1 text-xs text-white dark:bg-ink-700/80">
+              {t('schema.touch_edit_hint')}
+            </p>
+          )}
           {/* Minimap toggle button — hidden on small screens where minimap is off by default */}
           <button
             onClick={() => setShowMinimap((v) => !v)}
@@ -426,7 +458,7 @@ function SchemaScreenInner() {
               className="btn-secondary"
             >
               <Sparkles className="h-4 w-4" />
-              {t('schema.auto_layout')}
+              {t('schema.expand_all')}
             </button>
           )}
           {tab === 'matrix' && <span />}
