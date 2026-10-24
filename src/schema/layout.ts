@@ -102,6 +102,42 @@ export function layoutOrgChart(
   return { nodes, edges };
 }
 
+export function detectManagerCycle(
+  employees: Pick<Employee, 'id' | 'manager_id'>[],
+  empId: string,
+  newManagerId: string,
+): boolean {
+  if (empId === newManagerId) return true;
+  let current: string | null = newManagerId;
+  const visited = new Set<string>();
+  while (current !== null) {
+    if (current === empId) return true;
+    if (visited.has(current)) return true;
+    visited.add(current);
+    const emp = employees.find((e) => e.id === current);
+    current = emp?.manager_id ?? null;
+  }
+  return false;
+}
+
+export function detectProjectManagerCycle(
+  employees: Pick<Employee, 'id' | 'project_manager_id'>[],
+  empId: string,
+  newPmId: string,
+): boolean {
+  if (empId === newPmId) return true;
+  let current: string | null = newPmId;
+  const visited = new Set<string>();
+  while (current !== null) {
+    if (current === empId) return true;
+    if (visited.has(current)) return true;
+    visited.add(current);
+    const emp = employees.find((e) => e.id === current);
+    current = emp?.project_manager_id ?? null;
+  }
+  return false;
+}
+
 export function layoutMatrix(
   employees: Employee[],
   savedPositions: PositionMap | null,

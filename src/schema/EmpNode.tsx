@@ -11,11 +11,17 @@ const problemLabels: Record<ProblemType, string> = {
   empty_responsibility_zone: 'schema.badge_empty_zone',
 };
 
+export type ConnectMode = 'none' | 'manager' | 'pm' | 'dept';
+
 export function EmpNodeFactory(
   employees: Employee[],
   depts: Department[],
   onSelect: (id: string) => void,
   highlightIds: Set<string> | null,
+  connectable: boolean,
+  connectMode: ConnectMode,
+  pendingConnectSource: string | null,
+  onConnectTarget?: (targetId: string, kind: 'manager' | 'pm') => void,
 ) {
   const Component = memo(({ data, selected }: NodeProps) => {
     const { t } = useTranslation();
@@ -26,17 +32,35 @@ export function EmpNodeFactory(
     const dimmed = highlightIds !== null && !highlightIds.has(emp.id);
     const isHighlighted = highlightIds !== null && highlightIds.has(emp.id);
     const subCount = employees.filter((e) => e.manager_id === emp.id).length;
+    const isConnectSource = pendingConnectSource === emp.id;
+    const showHandles = connectable && connectMode !== 'none';
+    const handleStyle = showHandles
+      ? { opacity: 1, background: '#2563eb', border: '2px solid white', width: '10px', height: '10px' }
+      : { opacity: 0 };
+    const pmHandleStyle = showHandles && connectMode === 'pm'
+      ? { opacity: 1, background: '#d97706', border: '2px solid white', width: '10px', height: '10px' }
+      : { opacity: 0 };
+    const isPendingTarget = pendingConnectSource !== null && pendingConnectSource !== emp.id;
 
     return (
       <div
         className={`relative flex flex-col rounded-lg border-2 bg-white dark:bg-ink-900 px-3 py-2 transition-opacity ${
           selected ? 'border-brand-500 ring-2 ring-brand-200' : 'border-ink-300 dark:border-ink-700'
-        } ${dimmed ? 'opacity-30' : ''} ${isHighlighted ? 'ring-2 ring-warning-400' : ''}`}
+        } ${dimmed ? 'opacity-30' : ''} ${isHighlighted ? 'ring-2 ring-warning-400' : ''} ${
+          isConnectSource ? 'ring-2 ring-brand-400 border-brand-400' : ''
+        } ${isPendingTarget && showHandles ? 'cursor-pointer hover:border-brand-400 hover:ring-1 hover:ring-brand-200' : ''}`}
         style={{ width: 200, cursor: 'pointer' }}
-        onClick={(e) => { e.stopPropagation(); onSelect(emp.id); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (isPendingTarget && showHandles && connectMode !== 'dept' && onConnectTarget) {
+            onConnectTarget(emp.id, connectMode === 'pm' ? 'pm' : 'manager');
+          } else {
+            onSelect(emp.id);
+          }
+        }}
         dir="ltr"
       >
-        <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
+        <Handle type="target" position={Position.Top} style={handleStyle} isConnectableStart={false} isConnectableEnd={showHandles} />
         <div className="flex items-center gap-2">
           {emp.is_vacancy ? (
             <Briefcase className="h-5 w-5 shrink-0 text-warning-500" />
@@ -57,8 +81,8 @@ export function EmpNodeFactory(
         </div>
         {dept && <p className="mt-0.5 truncate text-xs text-ink-400">{dept.name}</p>}
         {subCount > 0 && <p className="text-xs text-ink-400">{t('schema.reports', { count: subCount })}</p>}
-        <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
-        <Handle type="target" position={Position.Left} id="pm-handle" style={{ opacity: 0 }} />
+        <Handle type="source" position={Position.Bottom} style={handleStyle} isConnectableStart={showHandles} isConnectableEnd={false} />
+        <Handle type="target" position={Position.Left} id="pm-handle" style={pmHandleStyle} isConnectableStart={showHandles && connectMode === 'pm'} isConnectableEnd={showHandles} />
       </div>
     );
   });

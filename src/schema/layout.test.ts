@@ -1,6 +1,6 @@
 // Pure-function unit tests for layout.ts — no test runner required.
 // Run: npx tsx src/schema/layout.test.ts
-import { positionMapKey, buildPositionMap, mergePosition, layoutOrgChart } from './layout';
+import { positionMapKey, buildPositionMap, mergePosition, layoutOrgChart, detectManagerCycle, detectProjectManagerCycle } from './layout';
 import type { Department, Employee } from '@/core/supabase';
 
 let passed = 0;
@@ -176,6 +176,64 @@ assertEq(
   { x: 777, y: 333 },
   'collapse/expand: saved position (777,333) survives collapse/expand cycle',
 );
+
+// --- detectManagerCycle ---
+
+// Self-link: A -> A
+assert(detectManagerCycle([], 'a', 'a'), 'cycle: self-link detected');
+
+// No cycle: B -> A -> null
+const chainEmps = [
+  { id: 'a', manager_id: null },
+  { id: 'b', manager_id: 'a' },
+];
+assert(!detectManagerCycle(chainEmps, 'b', 'a'), 'cycle: B->A is not a cycle');
+
+// 2-node cycle: A -> B, setting B's manager to A creates A->B->A
+assert(detectManagerCycle(chainEmps, 'a', 'b'), 'cycle: 2-node cycle A->B->A detected');
+
+// 3-node cycle: A -> B -> C -> A
+const threeNodeEmps = [
+  { id: 'a', manager_id: 'c' },
+  { id: 'b', manager_id: 'a' },
+  { id: 'c', manager_id: 'b' },
+];
+// Setting C's manager to A: A->C, but A's manager is C already -> cycle
+assert(detectManagerCycle(threeNodeEmps, 'c', 'a'), 'cycle: 3-node cycle detected (C->A where A->C->B->A)');
+
+// Setting B's manager to C when C->B->A->C would be a cycle
+assert(detectManagerCycle(threeNodeEmps, 'b', 'c'), 'cycle: 3-node cycle detected (B->C where C->B->A->C)');
+
+// No cycle: D -> C -> B -> A -> null
+const safeChain = [
+  { id: 'a', manager_id: null },
+  { id: 'b', manager_id: 'a' },
+  { id: 'c', manager_id: 'b' },
+  { id: 'd', manager_id: 'c' },
+];
+assert(!detectManagerCycle(safeChain, 'd', 'c'), 'cycle: D->C->B->A is not a cycle');
+assert(!detectManagerCycle(safeChain, 'd', 'a'), 'cycle: D->A (skip levels) is not a cycle');
+
+// Null manager: no cycle
+assert(!detectManagerCycle(safeChain, 'd', 'nonexistent'), 'cycle: nonexistent manager is not a cycle');
+
+// --- detectProjectManagerCycle ---
+
+assert(detectProjectManagerCycle([], 'x', 'x'), 'pm cycle: self-link detected');
+
+const pmChain = [
+  { id: 'x', project_manager_id: null },
+  { id: 'y', project_manager_id: 'x' },
+];
+assert(!detectProjectManagerCycle(pmChain, 'y', 'x'), 'pm cycle: Y->X is not a cycle');
+assert(detectProjectManagerCycle(pmChain, 'x', 'y'), 'pm cycle: 2-node cycle X->Y->X detected');
+
+const pmThree = [
+  { id: 'x', project_manager_id: 'z' },
+  { id: 'y', project_manager_id: 'x' },
+  { id: 'z', project_manager_id: 'y' },
+];
+assert(detectProjectManagerCycle(pmThree, 'z', 'x'), 'pm cycle: 3-node cycle detected');
 
 // --- Summary ---
 
